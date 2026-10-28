@@ -402,6 +402,13 @@ if uploaded_file is not None:
                     ):
                         with st.spinner("Predicting customer churn..."):
                             predictions = model.predict(input_batch)
+                            if hasattr(model, "predict_proba"):
+                              probabilities = model.predict_proba(input_batch)
+
+                              st.write("Model classes:", model.classes_)
+                              st.write("Probability output:", probabilities[:5])
+                            else:
+                             st.warning("This model does not support predict_proba().")
                             churn_probabilities = get_churn_probabilities(
                                 input_batch
                             )
