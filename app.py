@@ -202,3 +202,210 @@ if predict_button:
 
     except Exception as e:
         st.error(f"Prediction failed: {e}")
+
+
+# ==========================================
+# CSV Batch Prediction
+# ==========================================
+
+st.divider()
+st.header("📂 Batch Customer Churn Prediction")
+
+st.write(
+    "Upload a CSV file containing multiple customers "
+    "to predict churn for all of them at once."
+)
+
+# The CSV must use the same feature columns as the model
+BATCH_COLUMNS = [
+    "tenure",
+    "MonthlyCharges",
+    "TotalCharges",
+    "SeniorCitizen",
+    "gender",
+    "Partner",
+    "Dependents",
+    "PhoneService",
+    "MultipleLines",
+    "InternetService",
+    "OnlineSecurity",
+    "OnlineBackup",
+    "DeviceProtection",
+    "TechSupport",
+    "StreamingTV",
+    "StreamingMovies",
+    "Contract",
+    "PaperlessBilling",
+    "PaymentMethod",
+]
+
+# Downloadable CSV template
+template_row = {
+    "tenure": 12,
+    "MonthlyCharges": 70.0,
+    "TotalCharges": 840.0,
+    "SeniorCitizen": 0,
+    "gender": "Female",
+    "Partner": "Yes",
+    "Dependents": "No",
+    "PhoneService": "Yes",
+    "MultipleLines": "No",
+    "InternetService": "DSL",
+    "OnlineSecurity": "No",
+    "OnlineBackup": "Yes",
+    "DeviceProtection": "No",
+    "TechSupport": "No",
+    "StreamingTV": "Yes",
+    "StreamingMovies": "No",
+    "Contract": "Month-to-month",
+    "PaperlessBilling": "Yes",
+    "PaymentMethod": "Electronic check",
+}
+
+template_df = pd.DataFrame([template_row])
+
+st.download_button(
+    label="📥 Download CSV Template",
+    data=template_df.to_csv(index=False).encode("utf-8"),
+    file_name="churn_input_template.csv",
+    mime="text/csv",
+)
+
+uploaded_file = st.file_uploader(
+    "Upload customer CSV file",
+    type=["csv"],
+    key="batch_csv_uploader",
+)
+
+if uploaded_file is not None:
+    try:
+        batch_data = pd.read_csv(uploaded_file)
+
+        # Remove accidental spaces from column names
+        batch_data.columns = batch_data.columns.str.strip()
+
+        # Check required columns
+        missing_columns = [
+            col for col in BATCH_COLUMNS
+            if col not in batch_data.columns
+        ]
+
+        if missing_columns:
+            st.error(
+                "The CSV is missing these required columns: "
+                + ", ".join(missing_columns)
+            )
+            st.info(
+                "Download the CSV template above and use "
+                "the same column names."
+            )
+
+        elif batch_data.empty:
+            st.warning("The uploaded CSV file contains no customers.")
+
+        else:
+            # Keep only model input columns in the correct order
+            input_batch = batch_data[BATCH_COLUMNS].copy()
+
+            # Convert numeric columns to numeric data types
+            numeric_columns = [
+                "tenure",
+                "MonthlyCharges",
+                "TotalCharges",
+                "SeniorCitizen",
+            ]
+
+            for col in numeric_columns:
+                input_batch[col] = pd.to_numeric(
+                    input_batch[col],
+                    errors="coerce"
+                )
+
+            # Reject rows with missing or invalid numeric values
+            invalid_rows = input_batch[
+                numeric_columns
+            ].isna().any(axis=1)
+
+            if invalid_rows.any():
+                st.error(
+                    f"{int(invalid_rows.sum())} row(s) contain "
+                    "missing or invalid numeric values in "
+                    "tenure, MonthlyCharges, TotalCharges, "
+                    "or SeniorCitizen. Please correct the CSV "
+                    "and upload it again."
+                )
+
+            else:
+                if st.button(
+                    "🔍 Predict All Customers",
+                    key="batch_predict_button",
+                    use_container_width=True,
+                ):
+                    with st.spinner("Predicting customer churn..."):
+                        predictions = model.predict(input_batch)
+
+                    results = batch_data.copy()
+                    results["ChurnPrediction"] = predictions
+
+                    def get_churn_status(value):
+                        label = str(value).strip().lower()
+
+                        if label in ["1", "yes", "true", "churn"]:
+                            return "At Risk"
+                        elif label in ["0", "no", "false", "stay"]:
+                            return "Likely to Stay"
+                        else:
+                            return "Check Model Label"
+
+                    results["ChurnStatus"] = [
+                        get_churn_status(pred)
+                        for pred in predictions
+                    ]
+
+                    at_risk = int(
+                        (results["ChurnStatus"] == "At Risk").sum()
+                    )
+                    likely_to_stay = int(
+                        (results["ChurnStatus"] == "Likely to Stay").sum()
+                    )
+
+                    st.subheader("📊 Batch Prediction Summary")
+
+                    metric1, metric2, metric3 = st.columns(3)
+
+                    metric1.metric(
+                        "Total Customers",
+                        len(results)
+                    )
+                    metric2.metric(
+                        "Customers At Risk",
+                        at_risk
+                    )
+                    metric3.metric(
+                        "Likely to Stay",
+                        likely_to_stay
+                    )
+
+                    st.subheader("Prediction Results")
+
+                    st.dataframe(
+                        results,
+                        use_container_width=True
+                    )
+
+                    csv_output = results.to_csv(
+                        index=False
+                    ).encode("utf-8-sig")
+
+                    st.download_button(
+                        label="📥 Download Prediction Results",
+                        data=csv_output,
+                        file_name="churn_predictions.csv",
+                        mime="text/csv",
+                        key="download_batch_results",
+                        use_container_width=True,
+                    )
+
+    except Exception as e:
+        st.error(f"Batch prediction failed: {e}")
+
