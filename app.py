@@ -1,25 +1,18 @@
 
-import streamlit as st
-import pandas as pd
-import joblib
+
 from pathlib import Path
+import joblib
+import streamlit as st
 
-st.set_page_config(
-    page_title="Customer Churn Prediction",
-    page_icon="📊",
-    layout="wide"
-)
+BASE_DIR = Path(__file__).resolve().parent
+MODEL_PATH = BASE_DIR / "best_model.joblib"
 
-MODEL_PATH = Path(__file__).parent 
-
-
-@st.cache_resource
-def load_model():
-    return joblib.load(MODEL_PATH)
-
+if not MODEL_PATH.is_file():
+    st.error(f"Model file not found: {MODEL_PATH}")
+    st.stop()
 
 try:
-    model = load_model()
+    model = joblib.load(MODEL_PATH)
 except Exception as e:
     st.error(f"Could not load the model: {e}")
     st.stop()
