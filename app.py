@@ -1,3 +1,355 @@
+import pandas as pd
+from pathlib import Path
+import joblib
+import streamlit as st
+
+# ==========================================
+# Load trained model
+# ==========================================
+BASE_DIR = Path(__file__).resolve().parent
+MODEL_PATH = BASE_DIR / "best_model.joblib"
+
+if not MODEL_PATH.is_file():
+    st.error(f"Model file not found: {MODEL_PATH}")
+    st.stop()
+
+try:
+    model = joblib.load(MODEL_PATH)
+except Exception as e:
+    st.error(f"Could not load the model: {e}")
+    st.stop()
+
+
+# ==========================================
+# Helper functions
+# ==========================================
+CHURN_LABELS = {"1", "yes", "true", "churn"}
+STAY_LABELS = {"0", "no", "false", "stay"}
+
+
+def get_churn_status(value):
+    """Convert the model's target label into a readable status."""
+    label = str(value).strip().lower()
+
+    if label in CHURN_LABELS:
+        return "At Risk"
+    if label in STAY_LABELS:
+        return "Likely to Stay"
+    return "Check Model Label"
+
+
+def get_churn_probabilities(features):
+    """
+    Return churn probabilities as percentages if the model supports
+    predict_proba() and its class labels identify a churn class.
+    Otherwise, return None.
+    """
+    if not hasattr(model, "predict_proba"):
+        return None
+
+    try:
+        probabilities = model.predict_proba(features)
+        classes = list(model.classes_)
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+    churn_index = next(
+        (
+            index
+            for index, class_label in enumerate(classes)
+            if str(class_label).strip().lower() in CHURN_LABELS
+        ),
+        None,
+    )
+
+    if churn_index is None:
+        return None
+
+    return probabilities[:, churn_index] * 100
+
+
+# ==========================================
+# App title
+# ==========================================
+st.title("📊 Customer Churn Prediction")
+st.write(
+    "Enter customer details to predict whether the customer "
+    "is likely to leave the company."
+)
+
+st.divider()
+
+
+# ==========================================
+# Single-customer prediction
+# ==========================================
+with st.form("customer_form"):
+    st.subheader("Customer Information")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        gender = st.selectbox("Gender", ["Female", "Male"])
+        senior_citizen = st.selectbox("Senior Citizen", [0, 1])
+        partner = st.selectbox("Partner", ["Yes", "No"])
+        dependents = st.selectbox("Dependents", ["Yes", "No"])
+        tenure = st.slider("Tenure (months)", 0, 72, 12)
+
+        monthly_charges = st.number_input(
+            "Monthly Charges ($)",
+            min_value=0.0,
+            value=70.0,
+            step=1.0,
+        )
+
+        total_charges = st.number_input(
+            "Total Charges ($)",
+            min_value=0.0,
+            value=840.0,
+            step=10.0,
+        )
+
+    with col2:
+        phone_service = st.selectbox("Phone Service", ["Yes", "No"])
+
+        multiple_lines = st.selectbox(
+            "Multiple Lines",
+            ["No", "Yes", "No phone service"],
+        )
+
+        internet_service = st.selectbox(
+            "Internet Service",
+            ["DSL", "Fiber optic", "No"],
+        )
+
+        contract = st.selectbox(
+            "Contract Type",
+            ["Month-to-month", "One year", "Two year"],
+        )
+
+        paperless_billing = st.selectbox(
+            "Paperless Billing",
+            ["Yes", "No"],
+        )
+
+        payment_method = st.selectbox(
+            "Payment Method",
+            [
+                "Electronic check",
+                "Mailed check",
+                "Bank transfer (automatic)",
+                "Credit card (automatic)",
+            ],
+        )
+
+    st.subheader("Internet Services")
+
+    col3, col4 = st.columns(2)
+
+    with col3:
+        online_security = st.selectbox(
+            "Online Security",
+            ["Yes", "No", "No internet service"],
+        )
+
+        online_backup = st.selectbox(
+            "Online Backup",
+            ["Yes", "No", "No internet service"],
+        )
+
+        device_protection = st.selectbox(
+            "Device Protection",
+            ["Yes", "No", "No internet service"],
+        )
+
+    with col4:
+        tech_support = st.selectbox(
+            "Tech Support",
+            ["Yes", "No", "No internet service"],
+        )
+
+        streaming_tv = st.selectbox(
+            "Streaming TV",
+            ["Yes", "No", "No internet service"],
+        )
+
+        streaming_movies = st.selectbox(
+            "Streaming Movies",
+            ["Yes", "No", "No internet service"],
+        )
+
+    predict_button = st.form_submit_button(
+        "🔍 Predict Churn",
+        use_container_width=True,
+    )
+
+
+if predict_button:
+    input_data = pd.DataFrame(
+        [
+            {
+                "tenure": tenure,
+                "MonthlyCharges": monthly_charges,
+                "TotalCharges": total_charges,
+                "SeniorCitizen": senior_citizen,
+                "gender": gender,
+                "Partner": partner,
+                "Dependents": dependents,
+                "PhoneService": phone_service,
+                "MultipleLines": multiple_lines,
+                "InternetService": internet_service,
+                "OnlineSecurity": online_security,
+                "OnlineBackup": online_backup,
+                "DeviceProtection": device_protection,
+                "TechSupport": tech_support,
+                "StreamingTV": streaming_tv,
+                "StreamingMovies": streaming_movies,
+                "Contract": contract,
+                "PaperlessBilling": paperless_billing,
+                "PaymentMethod": payment_method,
+            }
+        ]
+    )
+
+    try:
+        prediction = model.predict(input_data)[0]
+        status = get_churn_status(prediction)
+
+        st.divider()
+        st.subheader("Prediction Result")
+
+        if status == "At Risk":
+            st.error("⚠️ This customer is at risk of leaving!")
+            st.write("The model predicts that this customer will churn.")
+        elif status == "Likely to Stay":
+            st.success("✅ This customer is likely to stay!")
+            st.write("The model predicts that this customer will not churn.")
+        else:
+            st.warning(f"Model prediction: {prediction}")
+            st.write(
+                "Please verify the target labels used during training."
+            )
+
+        single_probability = get_churn_probabilities(input_data)
+        if single_probability is not None:
+            st.metric(
+                "Churn Probability",
+                f"{single_probability[0]:.2f}%",
+            )
+        else:
+            st.caption(
+                "Churn probability is unavailable because this model "
+                "does not expose a recognizable churn class through "
+                "predict_proba()."
+            )
+
+        with st.expander("View Customer Details"):
+            st.dataframe(input_data, use_container_width=True)
+
+    except Exception as e:
+        st.error(f"Prediction failed: {e}")
+
+
+# ==========================================
+# CSV Batch Prediction
+# ==========================================
+st.divider()
+st.header("📂 Batch Customer Churn Prediction")
+st.write(
+    "Upload a CSV file containing multiple customers "
+    "to predict churn for all of them at once."
+)
+
+BATCH_COLUMNS = [
+    "tenure",
+    "MonthlyCharges",
+    "TotalCharges",
+    "SeniorCitizen",
+    "gender",
+    "Partner",
+    "Dependents",
+    "PhoneService",
+    "MultipleLines",
+    "InternetService",
+    "OnlineSecurity",
+    "OnlineBackup",
+    "DeviceProtection",
+    "TechSupport",
+    "StreamingTV",
+    "StreamingMovies",
+    "Contract",
+    "PaperlessBilling",
+    "PaymentMethod",
+]
+
+NUMERIC_COLUMNS = [
+    "tenure",
+    "MonthlyCharges",
+    "TotalCharges",
+    "SeniorCitizen",
+]
+
+# Downloadable CSV template
+template_row = {
+    "tenure": 12,
+    "MonthlyCharges": 70.0,
+    "TotalCharges": 840.0,
+    "SeniorCitizen": 0,
+    "gender": "Female",
+    "Partner": "Yes",
+    "Dependents": "No",
+    "PhoneService": "Yes",
+    "MultipleLines": "No",
+    "InternetService": "DSL",
+    "OnlineSecurity": "No",
+    "OnlineBackup": "Yes",
+    "DeviceProtection": "No",
+    "TechSupport": "No",
+    "StreamingTV": "Yes",
+    "StreamingMovies": "No",
+    "Contract": "Month-to-month",
+    "PaperlessBilling": "Yes",
+    "PaymentMethod": "Electronic check",
+}
+
+template_df = pd.DataFrame([template_row])
+
+st.download_button(
+    label="📥 Download CSV Template",
+    data=template_df.to_csv(index=False).encode("utf-8"),
+    file_name="churn_input_template.csv",
+    mime="text/csv",
+)
+
+uploaded_file = st.file_uploader(
+    "Upload customer CSV file",
+    type=["csv"],
+    key="batch_csv_uploader",
+)
+
+if uploaded_file is not None:
+    try:
+        batch_data = pd.read_csv(uploaded_file)
+        batch_data.columns = batch_data.columns.astype(str).str.strip()
+
+        if batch_data.empty:
+            st.warning("The uploaded CSV file contains no customers.")
+        else:
+            missing_columns = [
+                column
+                for column in BATCH_COLUMNS
+                if column not in batch_data.columns
+            ]
+
+            if missing_columns:
+                st.error(
+                    "The CSV is missing these required columns: "
+                    + ", ".join(missing_columns)
+                )
+                st.info(
+                    "Download the CSV template above and use the same "
+                    "column names. The columns can be in any order."
+                )
             else:
                 # Use only model features, in the expected order.
                 input_batch = batch_data[BATCH_COLUMNS].copy()
