@@ -341,11 +341,38 @@ if uploaded_file is not None:
                     key="batch_predict_button",
                     use_container_width=True,
                 ):
-                    with st.spinner("Predicting customer churn..."):
-                        predictions = model.predict(input_batch)
+                    
+with st.spinner("Predicting customer churn..."):
+    predictions = model.predict(input_batch)
+
+    # Calculate churn probability
+    if hasattr(model, "predict_proba"):
+        probabilities = model.predict_proba(input_batch)
+
+        classes = list(model.classes_)
+        churn_class = next(
+            (
+                cls for cls in classes
+                if str(cls).strip().lower()
+                in ["1", "yes", "true", "churn"]
+            ),
+            None
+        )
+
+        if churn_class is not None:
+            churn_index = classes.index(churn_class)
+            churn_probabilities = probabilities[:, churn_index] * 100
+        else:
+            churn_probabilities = None
+    else:
+        churn_probabilities = None
+
 
                     results = batch_data.copy()
                     results["ChurnPrediction"] = predictions
+
+if churn_probabilities is not None:
+    results["ChurnProbability (%)"] = churn_probabilities.round(2)
 
                     def get_churn_status(value):
                         label = str(value).strip().lower()
@@ -364,10 +391,19 @@ if uploaded_file is not None:
 
                     at_risk = int(
                         (results["ChurnStatus"] == "At Risk").sum()
-                    )
-                    likely_to_stay = int(
-                        (results["ChurnStatus"] == "Likely to Stay").sum()
-                    )
+                                  )
+                   likely_to_stay = int(
+                              (results["ChurnStatus"] == "Likely to Stay").sum()
+                                        )
+
+# Display average churn probability
+if churn_probabilities is not None:
+    st.metric(
+        "Average Churn Probability",
+        f"{churn_probabilities.mean():.2f}%"
+    )
+
+st.subheader("📊 Batch Prediction Summary")
 
                     st.subheader("📊 Batch Prediction Summary")
 
